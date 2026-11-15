@@ -3,11 +3,8 @@ import { CreateReservationRequest, Reservation, ProblemDetail } from '../types/r
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 /**
- * Cliente HTTP para comunicación stateless con el backend.
- * 
- * ¿CÓMO maneja los errores?
- * Intercepta respuestas no exitosas (4xx y 5xx) y parsea el cuerpo
- * según la especificación RFC 7807 Problem Details emitida por Spring Boot.
+ * Cliente HTTP CQRS para comunicación stateless con el backend.
+ * Intercepta errores 4xx/5xx y los transforma en ApiError según RFC 7807.
  */
 export class ApiError extends Error {
   constructor(public problem: ProblemDetail) {
@@ -17,6 +14,7 @@ export class ApiError extends Error {
 }
 
 export const reservationApi = {
+  // LADO COMMAND (POST -> 202 Accepted / PENDING)
   async createReservation(data: CreateReservationRequest): Promise<Reservation> {
     const response = await fetch(`${API_BASE_URL}/reservations`, {
       method: 'POST',
@@ -34,8 +32,24 @@ export const reservationApi = {
     return response.json();
   },
 
+  // LADO QUERY (GET -> Consulta por ID para Polling asíncrono)
   async getReservationById(id: number): Promise<Reservation> {
     const response = await fetch(`${API_BASE_URL}/reservations/${id}`);
+    if (!response.ok) {
+      const problem: ProblemDetail = await response.json();
+      throw new ApiError(problem);
+    }
+    return response.json();
+  },
+
+  // LADO QUERY (GET -> Consulta rápida en caché Redis < 5ms)
+  async checkAvailability(roomId: number, checkInDate: string, checkOutDate: string): Promise<boolean> {
+    const params = new URLSearchParams({
+      roomId: String(roomId),
+      checkInDate,
+      checkOutDate,
+    });
+    const response = await fetch(`${API_BASE_URL}/reservations/availability?${params.toString()}`);
     if (!response.ok) {
       const problem: ProblemDetail = await response.json();
       throw new ApiError(problem);
@@ -63,4 +77,3 @@ export const reservationApi = {
     return response.json();
   },
 };
-

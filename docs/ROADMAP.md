@@ -53,19 +53,19 @@ Este documento define la planificación técnica organizada en **microtareas inc
 
 ### [75%] Microtarea 5: Pruebas Automatizadas de Concurrencia y Contratos RFC 7807
 > **Impacto Arquitectónico:** Validación cruzada `Command` (Zero Overbooking) y `Query` (Consistencia eventual).
-- [ ] **Lado Command:** Prueba de estrés multihilo (`ExecutorService`) lanzando 10 hilos simultáneos sobre la misma habitación. Exactamente 1 pasa a `PENDING` y 9 son rechazadas con HTTP 409 Conflict.
-- [ ] **Lado Query:** Verificar que la consulta de disponibilidad en caché refleje stock en cero inmediatamente tras la reserva.
-- [ ] **Lado Sync:** Simular procesamiento del worker en test validando la transición a `CONFIRMED` o `CANCELLED` con rollback de stock en Redis.
-- [ ] *Criterio de Aceptación:* Suite de pruebas automatizadas verdes al 100%.
+- [x] **Lado Command:** Prueba de estrés multihilo (`ExecutorService`) lanzando 10 hilos simultáneos sobre la misma habitación. Exactamente 1 pasa a `PENDING` y 9 son rechazadas con HTTP 409 Conflict.
+- [x] **Lado Query:** Verificar que la consulta de disponibilidad en caché refleje stock en cero inmediatamente tras la reserva.
+- [x] **Lado Sync:** Simular procesamiento del worker en test validando la transición a `CONFIRMED` o `CANCELLED` con rollback de stock en Redis.
+- [x] *Criterio de Aceptación:* Suite de pruebas automatizadas verdes al 100%.
 
 ---
 
 ### [90%] Microtarea 6: Frontend React - Flujo Asíncrono de Reserva y CQRS
 > **Impacto Arquitectónico:** Consumo desacoplado de `Command Endpoint` (POST /reservations) y `Query Endpoints` (GET /reservations/{id}).
-- [ ] **Lado Command:** Envío de mutación y recepción de HTTP `202 Accepted` mostrando estado transitorio ("Procesando pago...").
-- [ ] **Lado Query:** Polling reactivo o consulta rápida de estado hacia `ReservationQueryService`.
-- [ ] **Manejo de Errores:** Renderizado amigable de excepciones RFC 7807 (409 Overbooking).
-- [ ] *Criterio de Aceptación:* Flujo E2E desde cliente web con retroalimentación en tiempo real.
+- [x] **Lado Command:** Envío de mutación y recepción de HTTP `202 Accepted` mostrando estado transitorio ("Procesando pago...").
+- [x] **Lado Query:** Polling reactivo o consulta rápida de estado hacia `ReservationQueryService`.
+- [x] **Manejo de Errores:** Renderizado amigable de excepciones RFC 7807 (409 Overbooking).
+- [x] *Criterio de Aceptación:* Flujo E2E desde cliente web con retroalimentación en tiempo real.
 
 ---
 

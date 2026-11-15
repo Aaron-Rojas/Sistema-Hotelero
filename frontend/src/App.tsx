@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { ReservationForm } from './components/ReservationForm';
 import { ReservationList } from './components/ReservationList';
@@ -8,8 +8,39 @@ import { Layers, Database, Cpu, ArrowUpRight } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const pollAttemptsRef = useRef<Record<number, number>>({});
+
+  // Polling CQRS Query: consulta el estado de las reservas PENDING cada 2s
+  useEffect(() => {
+    const pendingReservations = reservations.filter(
+      (r) => r.status === 'PENDING' && (pollAttemptsRef.current[r.id] ?? 0) < 6
+    );
+
+    if (pendingReservations.length === 0) return;
+
+    const intervalId = setInterval(async () => {
+      for (const pending of pendingReservations) {
+        const currentAttempt = (pollAttemptsRef.current[pending.id] ?? 0) + 1;
+        pollAttemptsRef.current[pending.id] = currentAttempt;
+
+        try {
+          const fresh = await reservationApi.getReservationById(pending.id);
+          if (fresh.status !== 'PENDING') {
+            setReservations((prev) =>
+              prev.map((item) => (item.id === fresh.id ? fresh : item))
+            );
+          }
+        } catch (err) {
+          console.error(`Error consultando estado de reserva #${pending.id}:`, err);
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(intervalId);
+  }, [reservations]);
 
   const handleReservationCreated = (newReservation: Reservation) => {
+    pollAttemptsRef.current[newReservation.id] = 0;
     setReservations((prev) => [newReservation, ...prev]);
   };
 
@@ -31,29 +62,29 @@ export const App: React.FC = () => {
         <section className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white rounded-2xl p-6 sm:p-8 shadow-md">
           <div className="max-w-3xl">
             <span className="inline-block px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-semibold uppercase tracking-wider mb-3">
-              Fase 1: Stack Tecnológico Seleccionado (Java 21 + Spring Boot 3.3 &amp; React)
+              Arquitectura CQRS + Event-Driven (Java 21 + Spring Boot 3.3 &amp; React)
             </span>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Arquitectura Cloud-Native Desacoplada
+              Sistema Hotelero Cloud-Native Desacoplado
             </h2>
             <p className="mt-2 text-slate-300 text-sm sm:text-base leading-relaxed">
-              Sistema de alta disponibilidad diseñado para prevenir condiciones de carrera (overbooking)
-              mediante bloqueo optimista en Amazon RDS y amortiguar eventos mediante colas Amazon SQS.
+              Segregación de comandos ACID con bloqueo pesimista en PostgreSQL, consultas ultrarrápidas
+              en ElastiCache Redis (&lt; 5ms) y procesamiento asíncrono de pagos vía Amazon SQS.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-700/60">
             <div className="flex items-center space-x-3 text-slate-300 text-xs">
               <Cpu className="w-5 h-5 text-emerald-400 shrink-0" />
-              <span>Spring Boot 3.3 Stateless Controller</span>
+              <span>CQRS Command / Query Stateless</span>
             </div>
             <div className="flex items-center space-x-3 text-slate-300 text-xs">
               <Database className="w-5 h-5 text-emerald-400 shrink-0" />
-              <span>PostgreSQL 15 Multi-AZ con HikariCP</span>
+              <span>PostgreSQL 15 + Redis Cache-Aside</span>
             </div>
             <div className="flex items-center space-x-3 text-slate-300 text-xs">
               <Layers className="w-5 h-5 text-emerald-400 shrink-0" />
-              <span>Amazon SQS Decoupled Processing</span>
+              <span>Amazon SQS + Saga Compensation</span>
             </div>
           </div>
         </section>
@@ -92,9 +123,8 @@ export const App: React.FC = () => {
       </main>
 
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-        <p>Sistema de Reservas Hoteleras Cloud-Native — Monorepositorio Arquitectónico</p>
+        <p>Sistema de Reservas Hoteleras Cloud-Native — Patrón CQRS &amp; RFC 7807</p>
       </footer>
     </div>
   );
 };
-

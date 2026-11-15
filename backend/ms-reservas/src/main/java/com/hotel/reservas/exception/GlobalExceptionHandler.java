@@ -1,6 +1,9 @@
 package com.hotel.reservas.exception;
 
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.validation.FieldError;
@@ -65,8 +68,19 @@ public class GlobalExceptionHandler {
         return problemDetail;
     }
 
+
+    @ExceptionHandler({CannotAcquireLockException.class, ConcurrencyFailureException.class})
+    public ProblemDetail handleLockExceptions(Exception ex) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        pd.setTitle("Concurrency Conflict");
+        pd.setType(URI.create("https://api.hotel.com/errors/concurrency-conflict"));
+        pd.setProperty("timestamp", Instant.now());
+        return pd;
+    }
+    
     @ExceptionHandler(Exception.class)
-    public ProblemDetail handleGeneralException(Exception ex) {
+    public ProblemDetail handleGenericException(Exception ex) {
+
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "An unexpected internal error occurred. Please contact system support."

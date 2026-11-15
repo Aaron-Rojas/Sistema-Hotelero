@@ -29,11 +29,16 @@ export const ReservationForm: React.FC<ReservationFormProps> = ({ onReservationC
 
     try {
       const created = await reservationApi.createReservation(formData);
-      setSuccessMessage(`¡Reserva creada exitosamente! ID de Reserva: #${created.id} (Estado: ${created.status})`);
+      setSuccessMessage(
+        `Solicitud encolada (HTTP 202 Accepted). Reserva #${created.id} en estado ${created.status}: validando pago en segundo plano...`
+      );
       onReservationCreated(created);
     } catch (err) {
       if (err instanceof ApiError) {
-        setErrorMessage(err.problem.detail || 'Ocurrió un error al procesar la reserva.');
+        const fieldErrors = err.problem.invalidParams
+          ? ` (${Object.values(err.problem.invalidParams).join(', ')})`
+          : '';
+        setErrorMessage(`${err.problem.detail || err.problem.title}${fieldErrors}`);
       } else {
         setErrorMessage('Error de conexión con el backend de reservas.');
       }
@@ -46,14 +51,14 @@ export const ReservationForm: React.FC<ReservationFormProps> = ({ onReservationC
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
       <div className="flex items-center space-x-2 mb-4 pb-3 border-b border-slate-100">
         <CalendarCheck className="w-5 h-5 text-emerald-600" />
-        <h2 className="text-base font-semibold text-slate-800">Nueva Solicitud de Reserva</h2>
+        <h2 className="text-base font-semibold text-slate-800">Nueva Solicitud de Reserva (CQRS Command)</h2>
       </div>
 
       {errorMessage && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2 text-sm text-red-700">
           <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold">Conflicto / Error:</span> {errorMessage}
+            <span className="font-semibold">Conflicto / Validación (RFC 7807):</span> {errorMessage}
           </div>
         </div>
       )}
@@ -169,4 +174,3 @@ export const ReservationForm: React.FC<ReservationFormProps> = ({ onReservationC
     </div>
   );
 };
-
