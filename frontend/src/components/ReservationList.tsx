@@ -1,6 +1,6 @@
 import React from 'react';
 import { Reservation } from '../types/reservation';
-import { Clock, CheckCircle2, XCircle, Ban } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Ban } from 'lucide-react';
 
 interface ReservationListProps {
   reservations: Reservation[];
@@ -34,9 +34,9 @@ export const ReservationList: React.FC<ReservationListProps> = ({ reservations, 
         );
       default:
         return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-            <Clock className="w-3.5 h-3.5" />
-            <span>PENDING</span>
+          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <span>PENDING · Procesando pago</span>
           </span>
         );
     }
@@ -45,7 +45,7 @@ export const ReservationList: React.FC<ReservationListProps> = ({ reservations, 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-        <h3 className="font-semibold text-slate-800 text-sm">Reservas Recientes (Persistencia RDS)</h3>
+        <h3 className="font-semibold text-slate-800 text-sm">Reservas Recientes (CQRS Query View)</h3>
         <span className="text-xs text-slate-500 font-mono">Total: {reservations.length}</span>
       </div>
 
@@ -103,4 +103,3 @@ export const ReservationList: React.FC<ReservationListProps> = ({ reservations, 
     </div>
   );
 };
-
