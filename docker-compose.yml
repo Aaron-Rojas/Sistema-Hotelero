@@ -17,7 +17,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d hotel_reservas_db"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d hotel_reservas_db" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -33,11 +33,11 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    command: [ "redis-server", "--save", "60", "1", "--loglevel", "warning" ]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -48,7 +48,7 @@ services:
   # 3. Bus de Mensajería Cloud (Amazon SQS local vía LocalStack)
   # ----------------------------------------------------------------------------
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.8
     container_name: hotel-localstack
     restart: unless-stopped
     ports:
@@ -61,7 +61,7 @@ services:
       - "./docker/localstack/init-sqs.sh:/etc/localstack/init/ready.d/init-sqs.sh:ro"
       - "/var/run/docker.sock:/var/run/docker.sock"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:4566/_localstack/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
