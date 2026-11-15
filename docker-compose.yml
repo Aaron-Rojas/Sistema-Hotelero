@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # Base de Datos Relacional (Simulación local de Amazon RDS Multi-AZ)
+  postgres:
+    image: postgres:15-alpine
+    container_name: hotel-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: hotel_reservas_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hotel_reservas_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hotel-network
+
+  # Almacenamiento en Caché en Memoria (Simulación local de Amazon ElastiCache Redis)
+  redis:
+    image: redis:7-alpine
+    container_name: hotel-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hotel-network
+
+  # Emulador Cloud Native de Servicios AWS (Amazon SQS local)
+  localstack:
+    image: localstack/localstack:latest
+    container_name: hotel-localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566"            # LocalStack Gateway
+    environment:
+      - SERVICES=sqs
+      - AWS_DEFAULT_REGION=us-east-1
+      - PERSISTENCE=0
+    volumes:
+      - "./docker/localstack/init-sqs.sh:/etc/localstack/init/ready.d/init-sqs.sh:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hotel-network
+
+networks:
+  hotel-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
