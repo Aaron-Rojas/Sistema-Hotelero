@@ -1,0 +1,101 @@
+# ==============================================================================
+# Despliegue del Worker Asíncrono en Kubernetes (Workload Spot)
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-pagos-worker
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: ms-pagos-worker
+    app.kubernetes.io/component: background-worker
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ms-reservas
+      role: worker
+  template:
+    metadata:
+      labels:
+        app: ms-reservas
+        role: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+    spec:
+      # ------------------------------------------------------------------------
+      # Separación de Cómputo: Instancias Spot (Optimización FinOps y Resiliencia)
+      # ¿POR QUÉ Spot para los Workers?
+      # 1. Reducción de costos de hasta un 80-90% en comparación con On-Demand.
+      # 2. Tolerancia a fallos: Los workers son consumidores asíncronos sin estado.
+      # 3. Integridad en SQS: Si AWS reclama el nodo Spot con 2 minutos de preaviso,
+      #    el mensaje en proceso no se pierde; expira su 'Visibility Timeout' y
+      #    vuelve a la cola para ser reprocesado idénticamente por otro Pod.
+      # ------------------------------------------------------------------------
+      nodeSelector:
+        lifecycle: spot
+
+      tolerations:
+        - key: "spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+
+      # Hardening de Seguridad a nivel de Pod (Principio de Menor Privilegio)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: worker
+          image: ms-reservas:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # Perfil 'worker': Activa @Profile("!api"), ejecutando PaymentSqsWorker
+            # y evitando exponer endpoints REST innecesarios para esta carga.
+            - name: SPRING_PROFILES_ACTIVE
+              value: "worker"
+          envFrom:
+            - configMapRef:
+                name: ms-reservas-config
+            - secretRef:
+                name: ms-reservas-secret
+
+          # Asignación de recursos (Requests/Limits calculados para procesamiento por lotes)
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "384Mi"
+            limits:
+              cpu: "800m"
+              memory: "768Mi"
+
+          # Sonda de Liveness: Detecta caídas internas de la JVM o deadlocks
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Sonda de Readiness: Valida que las conexiones a DB, Redis y SQS estén listas
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+

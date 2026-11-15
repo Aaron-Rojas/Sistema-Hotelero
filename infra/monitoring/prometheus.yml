@@ -1,0 +1,23 @@
+# ==============================================================================
+# Configuración de Prometheus para el Sistema Hotelero Cloud-Native
+# ==============================================================================
+
+global:
+  scrape_interval: 5s      # Intervalo corto para capturar picos de concurrencia y latencia
+  evaluation_interval: 5s
+
+scrape_configs:
+  # 1. Monitoreo de la API Stateless (Métricas JVM, HTTP y Conexiones HikariCP)
+  - job_name: 'ms-reservas-api'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['ms-reservas-api:8080']
+        labels:
+          application: 'ms-reservas'
+          workload: 'api'
+
+  # 2. Auto-monitoreo del servidor Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

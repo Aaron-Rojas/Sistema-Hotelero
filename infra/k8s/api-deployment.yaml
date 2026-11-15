@@ -1,0 +1,112 @@
+# ==============================================================================
+# Despliegue de la API Stateless en Kubernetes (Workload On-Demand)
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-reservas-api
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: ms-reservas-api
+    app.kubernetes.io/component: backend-api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ms-reservas
+      role: api
+  template:
+    metadata:
+      labels:
+        app: ms-reservas
+        role: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+    spec:
+      # ------------------------------------------------------------------------
+      # Separación de Cómputo: Instancias On-Demand
+      # ¿POR QUÉ On-Demand para la API?
+      # Las peticiones síncronas de los usuarios exigen SLA del 99.99%. No toleran
+      # las interrupciones abruptas de 2 minutos típicas de instancias Spot.
+      # ------------------------------------------------------------------------
+      nodeSelector:
+        lifecycle: on-demand
+
+      # Hardening de Seguridad a nivel de Pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: api
+          image: ms-reservas:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "api"
+          envFrom:
+            - configMapRef:
+                name: ms-reservas-config
+            - secretRef:
+                name: ms-reservas-secret
+
+          # Gestión estricta de recursos para evitar contención en el nodo
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"
+
+          # Sonda de Liveness: Reinicia el Pod si la JVM entra en Deadlock o falla
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Sonda de Readiness: Desconecta el Pod del Service hasta que termine de inicializar
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-reservas-api
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: ms-reservas-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+      protocol: TCP
+  selector:
+    app: ms-reservas
+    role: api
+

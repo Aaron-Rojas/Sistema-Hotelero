@@ -1,0 +1,107 @@
+# ==============================================================================
+# Despliegue del Frontend SPA (React + Nginx) en Kubernetes
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/component: web-spa
+spec:
+  replicas: 2
+  strategy:
+    # RollingUpdate garantiza cero downtime durante actualizaciones del frontend
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      # ------------------------------------------------------------------------
+      # El frontend sirve contenido estático pre-compilado; no procesa lógica
+      # de negocio y admite instancias On-Demand para baja latencia en el primer
+      # byte (TTFB) percibido por los usuarios finales.
+      # ------------------------------------------------------------------------
+      nodeSelector:
+        lifecycle: on-demand
+
+      # Hardening: Nginx no necesita permisos root para servir estáticos
+      securityContext:
+        runAsNonRoot: false   # Imagen oficial nginx:alpine requiere root para bind en puerto 80
+
+      containers:
+        - name: nginx-spa
+          image: hotel-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: http
+
+          # Footprint mínimo: Nginx estático es extremadamente ligero
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          # Liveness: Reinicia el pod si Nginx deja de responder completamente
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          # Readiness: Desconecta el pod del LoadBalancer hasta que Nginx esté listo
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+
+---
+# ==============================================================================
+# Service de tipo LoadBalancer
+# ¿POR QUÉ LoadBalancer en lugar de ClusterIP + Ingress?
+# Para un despliegue directo en Amazon EKS, AWS aprovisiona automáticamente
+# un Classic/NLB al declarar type: LoadBalancer, simplificando la configuración
+# sin un Ingress Controller adicional. En un clúster local (Minikube/k3d),
+# se usa 'minikube service frontend --url' o el EXTERNAL-IP asignado por k3d.
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: frontend
+  annotations:
+    # Fuerza Network Load Balancer (capa 4) en lugar del Classic LB (capa 4/7)
+    # para menor latencia y soporte de IPs estáticas en Amazon EKS.
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+      protocol: TCP
+  selector:
+    app: frontend
+

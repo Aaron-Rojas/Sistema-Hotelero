@@ -1,0 +1,122 @@
+# ==============================================================================
+# Autoescalado Dual: HPA (CPU) para la API + KEDA (SQS) para el Worker
+#
+# ARQUITECTURA DE ESCALADO:
+#   - API (ms-reservas-api):  HPA v2 reacciona a CPU > 70%.
+#     Resultado: escala horizontal de pods síncronos para absorber picos HTTP.
+#
+#   - Worker (ms-pagos-worker): KEDA ScaledObject observa la cola AWS SQS.
+#     Resultado: escala desde 1 pod mínimo (siempre activo) hasta 10 bajo carga,
+#     pagando cómputo Spot solo proporcional al backlog real de mensajes.
+# ==============================================================================
+
+# ==============================================================================
+# [1/2] HPA para la API Stateless (Horizontal Pod Autoscaler v2)
+# ==============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ms-reservas-api-hpa
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: ms-reservas-api
+    app.kubernetes.io/component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ms-reservas-api
+
+  # Rango de réplicas: mínimo 2 (alta disponibilidad Multi-AZ), máximo 10
+  minReplicas: 2
+  maxReplicas: 10
+
+  metrics:
+    # Criterio — CPU: Escala cuando cualquier Pod supera el 70% de su 'request' de CPU.
+    # ¿POR QUÉ 70%? Deja margen de headroom para absorber spikes repentinos antes
+    # de que un pod llegue al 100% y empiece a throttlear peticiones entrantes.
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+  behavior:
+    # Scale-UP agresivo: añadir hasta 3 Pods cada 60s ante picos de tráfico
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 3
+          periodSeconds: 60
+    # Scale-DOWN conservador: eliminar máximo 1 Pod cada 5 minutos.
+    # Evita 'flapping' (oscilaciones) por picos momentáneos de tráfico benigno.
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 300
+
+---
+# ==============================================================================
+# [2/2] KEDA ScaledObject para el Worker Asíncrono (SQS Event-Driven Autoscaling)
+#
+# ¿POR QUÉ KEDA y no HPA para el Worker?
+# El Worker es 100% reactivo a mensajes: HPA escala por CPU/memoria, métricas
+# que solo reflejan carga ACTUAL. KEDA escala por PROFUNDIDAD de cola (backlog
+# futuro), reaccionando antes de que el CPU se dispare y garantizando SLA en
+# el procesamiento de pagos. 'ApproximateNumberOfMessagesVisible' es la fuente
+# de verdad real para este workload.
+#
+# PRERREQUISITO: KEDA v2.x instalado en el clúster:
+#   kubectl apply -f https://github.com/kedacore/keda/releases/download/v2.16.0/keda-2.16.0.yaml
+# ==============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ms-pagos-worker-scaledobject
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: ms-pagos-worker
+    app.kubernetes.io/component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ms-pagos-worker
+
+  # minReplicaCount: 1 → Mantener siempre al menos 1 Worker activo para consumo
+  # inmediato sin el delay de cold-start de la JVM al escalar desde 0.
+  # (Cambio deliberado respecto a minReplicaCount: 0, que optimiza costos pero
+  # introduce latencia inicial de ~30s al primer mensaje tras inactividad).
+  minReplicaCount: 1
+  maxReplicaCount: 10
+
+  # cooldownPeriod: 60s → Tiempo que KEDA espera antes de desescalar tras
+  # que la cola se vacíe. 60s es el valor mínimo recomendado para evitar
+  # pod churn (crear/destruir pods en cada ráfaga corta de mensajes).
+  cooldownPeriod: 60
+
+  # pollingInterval: 15s → Frecuencia de consulta a CloudWatch/SQS para leer
+  # la métrica 'ApproximateNumberOfMessagesVisible'. Balanceo entre reactividad
+  # y costo de llamadas a la API de CloudWatch.
+  pollingInterval: 15
+
+  triggers:
+    # Trigger basado en la profundidad de la cola de Amazon SQS.
+    # Las variables AWS_REGION y SQS_RESERVATION_QUEUE_NAME son inyectadas
+    # desde el ConfigMap 'ms-reservas-config' (infra/k8s/config.yaml) en el Pod.
+    - type: aws-sqs-queue
+      metadata:
+        # queueURL referencia la cola definida en el ConfigMap ms-reservas-config.
+        # En KEDA, el trigger puede leer vars de entorno del Pod destino mediante
+        # la clave 'fromEnv', garantizando un único punto de verdad (config.yaml).
+        queueURLFromEnv: "AWS_SQS_QUEUE_URL"       # Env var exportada por el ConfigMap
+        queueLength: "5"                             # 1 réplica por cada 5 mensajes visibles
+        awsRegion: "us-east-1"
+        # ¿POR QUÉ queueLength=5?
+        # Si hay 50 mensajes pendientes → KEDA levanta 10 Workers automáticamente.
+        # Si hay 25 mensajes → 5 Workers. Throttle proporcional al backlog real.
+        identityOwner: pod   # Usa credenciales IRSA del Pod (IAM Role for Service Account)
