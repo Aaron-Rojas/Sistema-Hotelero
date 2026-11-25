@@ -1,0 +1,27 @@
+# ==============================================================================
+# Configuración de Clúster Local Kind (Kubernetes in Docker) con FinOps
+# Topología:
+#   - 1 Control-Plane
+#   - 1 Worker On-Demand (label: lifecycle=on-demand) -> API y Frontend
+#   - 1 Worker Spot (label: lifecycle=spot, taint: spot=true:NoSchedule) -> Workers SQS
+# ==============================================================================
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "lifecycle=on-demand"
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "lifecycle=spot"
+            register-with-taints: "spot=true:NoSchedule"

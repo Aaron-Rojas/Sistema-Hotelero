@@ -1,0 +1,85 @@
+# ==============================================================================
+# Backup Automatizado de PostgreSQL hacia S3 (LocalStack)
+# Frecuencia: Cada 15 minutos (*/15 * * * *)
+# Estrategia: initContainer ejecuta pg_dump comprimido (.sql.gz) y el contenedor
+# principal sube el snapshot al bucket s3://hotel-backups/
+# ==============================================================================
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-s3-backup
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: postgres-s3-backup
+    app.kubernetes.io/part-of: sistema-hotelero
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: postgres-s3-backup
+        spec:
+          restartPolicy: OnFailure
+          initContainers:
+            - name: pg-dump
+              image: postgres:16-alpine
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: ms-reservas-secret
+                      key: SPRING_DATASOURCE_USERNAME
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ms-reservas-secret
+                      key: SPRING_DATASOURCE_PASSWORD
+              command:
+                - sh
+                - -c
+                - |
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  FILE="/backup/hotel_reservas_${TIMESTAMP}.sql.gz"
+                  echo "Generando backup comprimido: ${FILE}"
+                  pg_dump -h postgres -p 5432 -U "$PGUSER" -d hotel_reservas_db | gzip > "${FILE}"
+                  ls -lh "${FILE}"
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+          containers:
+            - name: s3-upload
+              image: amazon/aws-cli:2.17.0
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: AWS_DEFAULT_REGION
+                  value: "us-east-1"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: ms-reservas-secret
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ms-reservas-secret
+                      key: AWS_SECRET_ACCESS_KEY
+              command:
+                - sh
+                - -c
+                - |
+                  echo "Subiendo backup a s3://hotel-backups/..."
+                  aws s3 cp /backup/ s3://hotel-backups/ --recursive --endpoint-url=http://localstack:4566
+                  aws s3 ls s3://hotel-backups/ --endpoint-url=http://localstack:4566
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+          volumes:
+            - name: backup-storage
+              emptyDir: {}

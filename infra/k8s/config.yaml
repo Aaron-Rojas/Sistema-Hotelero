@@ -1,8 +1,16 @@
 # ==============================================================================
-# Configuración y Secretos de Kubernetes (12-Factor App)
+# Namespace, Configuración y Secretos de Kubernetes (12-Factor App)
 # Namespace: hotel-system
 # ==============================================================================
 
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hotel-system
+  labels:
+    app.kubernetes.io/part-of: sistema-hotelero
+
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,16 +20,16 @@ metadata:
     app.kubernetes.io/name: ms-reservas
     app.kubernetes.io/part-of: sistema-hotelero
 data:
-  # Parámetros de conexión a servicios gestionados en AWS (EKS / VPC)
-  SPRING_DATASOURCE_URL: "jdbc:postgresql://hotel-rds-cluster.xyz.us-east-1.rds.amazonaws.com:5432/hotel_reservas_db"
-  SPRING_DATA_REDIS_HOST: "hotel-redis.xyz.use1.cache.amazonaws.com"
+  # Parámetros de conexión a servicios locales dentro del clúster (ClusterIP)
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/hotel_reservas_db"
+  SPRING_DATA_REDIS_HOST: "redis"
   SPRING_DATA_REDIS_PORT: "6379"
   AWS_REGION: "us-east-1"
-  AWS_SQS_ENDPOINT: "https://sqs.us-east-1.amazonaws.com"
+  AWS_SQS_ENDPOINT: "http://localstack:4566"
   SQS_RESERVATION_QUEUE_NAME: "hotel-reservation-events-prod"
   # Variable leída directamente por el trigger KEDA aws-sqs-queue via 'queueURLFromEnv'.
   # Único punto de verdad para la URL de SQS; referenciada desde autoscaling.yaml.
-  AWS_SQS_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/hotel-reservation-events-prod"
+  AWS_SQS_QUEUE_URL: "http://localstack:4566/000000000000/hotel-reservation-events-prod"
 
   # Parámetros JVM optimizados para contenedores en Kubernetes
   # MaxRAMPercentage=75.0 respeta los 'resources.limits.memory' asignados al Pod
@@ -38,9 +46,9 @@ metadata:
     app.kubernetes.io/part-of: sistema-hotelero
 type: Opaque
 stringData:
-  # Credenciales sensibles inyectadas en runtime (Reemplazar con AWS Secrets Manager / Vault en CI/CD)
+  # Credenciales inyectadas en runtime para entorno local Kind/Minikube (LocalStack + Postgres)
   SPRING_DATASOURCE_USERNAME: "hotel_admin"
-  SPRING_DATASOURCE_PASSWORD: "CambiarPorPasswordSeguroDeRDS!_2026"
-  AWS_ACCESS_KEY_ID: "AKIA_PRODUCTION_KEY_EXAMPLE"
-  AWS_SECRET_ACCESS_KEY: "PRODUCTION_SECRET_KEY_EXAMPLE"
+  SPRING_DATASOURCE_PASSWORD: "hotel_pass_2026"
+  AWS_ACCESS_KEY_ID: "test"
+  AWS_SECRET_ACCESS_KEY: "test"
 

@@ -1,0 +1,244 @@
+# ==============================================================================
+# Infraestructura de Datos y Mensajería en Kubernetes (Entorno Local Kind/Minikube)
+# Namespace: hotel-system
+# Incluye: PostgreSQL 16, Redis 7 y LocalStack (SQS + S3)
+# ==============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: sistema-hotelero
+data:
+  01-init.sql: |
+    -- Inicialización de extensiones base; Flyway DB gestionará el esquema y migraciones (V1__init_schema.sql)
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: hotel-system
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: sistema-hotelero
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              value: "hotel_reservas_db"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ms-reservas-secret
+                  key: SPRING_DATASOURCE_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ms-reservas-secret
+                  key: SPRING_DATASOURCE_PASSWORD
+          volumeMounts:
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: init-script
+          configMap:
+            name: postgres-init-script
+        - name: postgres-data
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: hotel-system
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app: postgres
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: hotel-system
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: sistema-hotelero
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+              name: redis
+          command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: hotel-system
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+  selector:
+    app: redis
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: localstack-init-script
+  namespace: hotel-system
+  labels:
+    app.kubernetes.io/name: localstack
+    app.kubernetes.io/part-of: sistema-hotelero
+data:
+  init-aws.sh: |
+    #!/bin/bash
+    set -e
+    echo "Inicializando recursos AWS en LocalStack (SQS + S3)..."
+    awslocal sqs create-queue --queue-name hotel-reservation-events-prod --region us-east-1
+    awslocal s3 mb s3://hotel-backups --region us-east-1
+    echo "Cola SQS 'hotel-reservation-events-prod' y bucket S3 'hotel-backups' creados."
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  namespace: hotel-system
+  labels:
+    app: localstack
+    app.kubernetes.io/part-of: sistema-hotelero
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: localstack
+  template:
+    metadata:
+      labels:
+        app: localstack
+    spec:
+      containers:
+        - name: localstack
+          image: localstack/localstack:3.8
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4566
+              name: edge
+          env:
+            - name: SERVICES
+              value: "sqs,s3"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: PERSISTENCE
+              value: "0"
+          volumeMounts:
+            - name: init-aws
+              mountPath: /etc/localstack/init/ready.d/init-aws.sh
+              subPath: init-aws.sh
+          readinessProbe:
+            httpGet:
+              path: /_localstack/health
+              port: 4566
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /_localstack/health
+              port: 4566
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: init-aws
+          configMap:
+            name: localstack-init-script
+            defaultMode: 0755
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+  namespace: hotel-system
+  labels:
+    app: localstack
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4566
+      targetPort: 4566
+      protocol: TCP
+      name: edge
+  selector:
+    app: localstack

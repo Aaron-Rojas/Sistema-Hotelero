@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/name: ms-reservas-api
     app.kubernetes.io/component: backend-api
 spec:
-  replicas: 2
+  replicas: 3
   strategy:
     type: RollingUpdate
     rollingUpdate:
